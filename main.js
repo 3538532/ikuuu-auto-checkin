@@ -30,6 +30,7 @@ async function checkIn(account) {
 
   const contentType = response.headers.get("content-type") || "";
   const body = await response.text();
+  const trimmed = body.trim();
 
   if (!response.ok) {
     throw new Error(
@@ -37,22 +38,27 @@ async function checkIn(account) {
     );
   }
 
-  // 正常应返回 JSON。返回 HTML 基本等于：Cookie 失效被重定向到登录页，或被 WAF 拦截
-  if (!contentType.includes("json") || /^\s*</.test(body)) {
-    const hint =
-      /<!doctype|<html/i.test(body)
-        ? "接口返回了 HTML 页面（通常是 Cookie 已失效被跳转到登录页，或请求被站点拦截），请重新获取 Cookie 更新 ACCOUNTS"
-        : "接口返回内容不是 JSON";
+  if (!trimmed) {
     throw new Error(
-      `${hint}；final=${response.url}；content-type=${contentType || "空"}；片段：${snippet(body)}`
+      `接口返回空内容；final=${response.url}；status=${response.status}；content-type=${contentType || "空"}`
+    );
+  }
+
+  // 注意：本站成功时也会用 text/html 返回 JSON，因此只按正文判断，不看 content-type。
+  // 正文以 < 开头基本等于：Cookie 失效被重定向到登录页，或被 WAF 拦截。
+  if (trimmed.startsWith("<") || /<!doctype|<html/i.test(trimmed.slice(0, 300))) {
+    throw new Error(
+      `接口返回了 HTML 页面（通常是 Cookie 已失效被跳转到登录页，或请求被站点拦截），请重新获取 Cookie 更新 ACCOUNTS；final=${response.url}；content-type=${contentType || "空"}；片段：${snippet(body)}`
     );
   }
 
   let data;
   try {
-    data = JSON.parse(body);
+    data = JSON.parse(trimmed);
   } catch (error) {
-    throw new Error(`JSON 解析失败 - ${error.message}；片段：${snippet(body)}`);
+    throw new Error(
+      `JSON 解析失败 - ${error.message}；final=${response.url}；content-type=${contentType || "空"}；片段：${snippet(body)}`
+    );
   }
 
   const msg = data.msg || data.message || JSON.stringify(data);
